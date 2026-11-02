@@ -640,6 +640,19 @@ function setUpdateHint(key, version) {
   nodes.updateHint.textContent = text;
 }
 
+/** Failure reasons reported by the main process; each gets its own sentence. */
+const UPDATE_FAIL_KEYS = {
+  unconfigured: 'settings.updateNoSite',
+  offline: 'settings.updateOffline',
+  server: 'settings.updateServer',
+};
+
+function setUpdateFailHint(result) {
+  if (!nodes.updateHint) return;
+  const key = UPDATE_FAIL_KEYS[result?.reason] || 'settings.updateFailed';
+  nodes.updateHint.textContent = t(key).replace('{status}', result?.status ? String(result.status) : '—');
+}
+
 /**
  * Ask the site for its release manifest.
  *
@@ -653,7 +666,7 @@ async function checkForUpdates({ manual = false } = {}) {
   try {
     const result = await window.bar.checkUpdate();
     if (!result?.ok) {
-      if (manual) setUpdateHint('settings.updateFailed');
+      if (manual) setUpdateFailHint(result);
       return null;
     }
 

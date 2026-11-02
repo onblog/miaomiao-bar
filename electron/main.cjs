@@ -49,6 +49,42 @@ const SITE_ORIGIN = siteOrigin();
 const CONTACT_EMAIL = contactEmail();
 const STATS_URL = `${SITE_ORIGIN}/api/ping`;
 
+/**
+ * The manifest request is this app's only outbound call besides the launch ping, and it had no
+ * timeout and no retry: on a slow dual-stack network one stalled connection looked exactly like
+ * "no update server". net.fetch goes through Chromium (so system proxy and Happy Eyeballs are
+ * already handled); give it real time and one retry on top.
+ */
+const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_ATTEMPTS = 2;
+const RETRY_DELAY_MS = 1200;
+
+/** The error code worth showing a human; Chromium and Node hide it in different places. */
+function networkCode(error) {
+  const cause = error && error.cause;
+  const nested = cause && Array.isArray(cause.errors) ? cause.errors[0] : null;
+  return String(
+    (nested && nested.code) ||
+      (cause && cause.code) ||
+      (error && error.code) ||
+      (error && error.name) ||
+      'network',
+  );
+}
+
+async function requestWithRetry(url, init) {
+  let lastError;
+  for (let attempt = 1; attempt <= REQUEST_ATTEMPTS; attempt += 1) {
+    try {
+      return await net.fetch(url, { ...(init || {}), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    } catch (error) {
+      lastError = error;
+      if (attempt < REQUEST_ATTEMPTS) await new Promise((done) => setTimeout(done, RETRY_DELAY_MS));
+    }
+  }
+  throw lastError;
+}
+
 const PANEL_WIDTH = 420;
 const PANEL_HEIGHT = 700;
 const PANEL_MARGIN = 6;
@@ -574,30 +610,44 @@ function registerIpc() {
   });
 
   ipcMain.handle('update:check', async () => {
-    if (!SITE_ORIGIN) return { ok: false, error: 'no_site' };
+    // `reason` is what the panel shows: no site address, unreachable network or a server error
+    // used to collapse into one "check failed" sentence.
+    if (!SITE_ORIGIN) return { ok: false, error: 'no_site', reason: 'unconfigured' };
 
+    let response;
     try {
-      const response = await net.fetch(`${SITE_ORIGIN}/api/release`, {
+      response = await requestWithRetry(`${SITE_ORIGIN}/api/release`, {
         cache: 'no-store',
         headers: { 'cache-control': 'no-cache' },
       });
-      if (!response.ok) return { ok: false, error: `http_${response.status}` };
-
-      const payload = await response.json();
-      const latest = payload?.data?.version;
-      if (!payload?.ok || !latest) return { ok: false, error: 'no_manifest' };
-
-      return {
-        ok: true,
-        current: app.getVersion(),
-        latest,
-        url: `${SITE_ORIGIN}/`,
-        releasedAt: payload.data.released_at ?? null,
-      };
     } catch (error) {
-      console.error('update check failed', error);
-      return { ok: false, error: 'network' };
+      console.error('update check failed:', networkCode(error));
+      return { ok: false, error: 'network', reason: 'offline', detail: networkCode(error) };
     }
+
+    if (!response.ok) {
+      return { ok: false, error: `http_${response.status}`, reason: 'server', status: response.status };
+    }
+
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      return { ok: false, error: 'no_manifest', reason: 'server', status: response.status };
+    }
+
+    const latest = payload?.data?.version;
+    if (!payload?.ok || !latest) {
+      return { ok: false, error: 'no_manifest', reason: 'server', status: response.status };
+    }
+
+    return {
+      ok: true,
+      current: app.getVersion(),
+      latest,
+      url: `${SITE_ORIGIN}/`,
+      releasedAt: payload.data.released_at ?? null,
+    };
   });
 
   ipcMain.handle('app:open-external', (_event, url) => {

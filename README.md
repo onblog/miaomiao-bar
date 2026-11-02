@@ -7,7 +7,7 @@
 **The clipboard workbench for macOS: whatever lands on it — a paragraph, a column of names, a picture — comes back cleaned, tidied and ready to paste.**
 
 <a href="https://bar.wordtk.com"><img alt="Download" src="https://img.shields.io/badge/%E2%96%B6_Download-bar.wordtk.com-f2b544?style=for-the-badge"></a>
-<img alt="version" src="https://img.shields.io/badge/version-1.14.0-f2b544?style=for-the-badge">
+<img alt="version" src="https://img.shields.io/badge/version-1.14.1-f2b544?style=for-the-badge">
 
 <br/>
 
@@ -202,6 +202,10 @@ Three rules keep it honest:
   coarse country/city Cloudflare derives) that feeds [the usage page](https://bar.wordtk.com/stats);
   turning **Anonymous usage** off in Settings stops it immediately. No content, no IP, no user agent,
   no crash reporting, and the update check is a plain GET of the public release manifest.
+  That GET uses a 15s timeout plus one retry: on slow dual-stack networks an AAAA record is often
+  a blackhole — Chromium falls back to IPv4 via Happy Eyeballs while a stalled request looks like
+  "the update check is broken". A failure now says why (no site configured / network unreachable /
+  server error) instead of one generic sentence.
 - Turning history off stops recording immediately; **Clear history** deletes the index and every
   blob. Any single entry can also be deleted from the full list — hover a row and the delete button
   floats up on the right, which removes that entry and its blobs.
@@ -291,7 +295,7 @@ Shipping to production is still `git push`: Cloudflare Workers Builds deploys th
 
 ## Status
 
-`1.14.0`: 21 actions across six groups, image upload to your own S3-compatible bucket, save to
+`1.14.1`: 21 actions across six groups, image upload to your own S3-compatible bucket, save to
 Downloads and open in Preview, local clipboard history, undo next to the action count, an update
 check, an anonymous usage page, and the bilingual panel. The app is called 喵喵剪贴板 (Miaomiao Bar)
 and lives at **bar.wordtk.com**; dmgs for both architectures are served from Cloudflare R2.

@@ -1,7 +1,7 @@
 {
   "name": "miaomiao-bar",
   "productName": "喵喵剪贴板",
-  "version": "1.14.0",
+  "version": "1.14.1",
   "description": "A macOS clipboard workbench for text and images: whatever lands on the clipboard leaves as something you can paste right away. 喵喵剪贴板：macOS 上的剪贴板工作台，文字和图片进了剪贴板就变成能直接用的样子。",
   "main": "electron/main.cjs",
   "author": "Martin",

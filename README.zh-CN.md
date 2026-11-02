@@ -7,7 +7,7 @@
 **macOS 上的剪贴板工作台：文字和图片，凡是进了剪贴板的东西，出来的都是能直接用的样子。**
 
 <a href="https://bar.wordtk.com"><img alt="下载" src="https://img.shields.io/badge/%E2%96%B6_%E4%B8%8B%E8%BD%BD-bar.wordtk.com-f2b544?style=for-the-badge"></a>
-<img alt="版本" src="https://img.shields.io/badge/%E7%89%88%E6%9C%AC-1.14.0-f2b544?style=for-the-badge">
+<img alt="版本" src="https://img.shields.io/badge/%E7%89%88%E6%9C%AC-1.14.1-f2b544?style=for-the-badge">
 
 <br/>
 
@@ -172,7 +172,9 @@ src/                面板渲染层：预览、动作网格、双语文案
 - 只有两类网络请求，都写在这里：一是 `PUT` 到你配置的存储桶；二是每次启动一条匿名信号（本机生成的随机
   设备 ID、UTC 日期，以及 Cloudflare 解析出的国家/城市级定位），用于[使用数据页](https://bar.wordtk.com/stats)。
   在设置里关掉「匿名使用统计」即刻停止。不上传内容、不存 IP、不存 UA、没有崩溃上报；检查更新只是一次
-  公开清单的 GET。
+  公开清单的 GET。那条 GET 用 15 秒超时 + 一次重试：慢速双栈网络里 IPv6 的 AAAA 记录常常黑洞，
+  浏览器靠 Happy Eyeballs 会立刻回落 IPv4，而请求挂住时会看起来像「检查更新坏了」。
+  失败时面板会写清原因（没配置官网 / 网络不可达 / 服务器异常），不再一律「检查失败」。
 - 关掉记录会立刻停止写入；「清空历史」会把索引和所有图片一起删掉。
 - 应用自身不截屏，也从不申请「屏幕录制」权限。
 
@@ -253,7 +255,7 @@ cd site && npm run release        # 上传 R2、重写清单、清理上一版
 
 ## 当前进度
 
-`1.14.0`：21 个动作、六个分组、图片上传到你自己的 S3 兼容存储桶、存到下载目录与「预览」、
+`1.14.1`：21 个动作、六个分组、图片上传到你自己的 S3 兼容存储桶、存到下载目录与「预览」、
 本地剪贴板历史（文字 + 图片）、动作旁的撤销按钮、检查更新、匿名使用数据页，以及双语面板。
 官网在 **https://bar.wordtk.com**，双架构 dmg 由 Cloudflare R2 分发。
 
