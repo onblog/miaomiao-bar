@@ -34,9 +34,11 @@ function fail(status, code, message) {
   return json(status, { ok: false, error: { code, message } });
 }
 
-async function readManifest(env) {
+async function readManifest(env, { fresh = false } = {}) {
   const now = Date.now();
-  if (manifestCache.value && now - manifestCache.at < CACHE_TTL_MS) return manifestCache.value;
+  if (!fresh && manifestCache.value && now - manifestCache.at < CACHE_TTL_MS) {
+    return manifestCache.value;
+  }
 
   const object = await env.R2_RELEASES.get(MANIFEST_KEY);
   if (!object) return null;
@@ -61,7 +63,10 @@ function publicManifest(manifest) {
     files[arch] = {
       name: file.name,
       size: file.size ?? null,
-      url: `/api/download?arch=${arch}`,
+      // 清单里本来就写好了 sha256，前端拿它做最后一道校验就不再靠运气。
+      sha256: file.sha256 ?? null,
+      // 版本号进 URL：发版后旧链接指向的字节不会被拼到新文件里。
+      url: `/api/download?arch=${arch}&v=${encodeURIComponent(manifest.version)}`,
     };
   }
 
@@ -72,15 +77,14 @@ function publicManifest(manifest) {
   };
 }
 
-async function handleRelease(env) {
-  const manifest = await readManifest(env);
+async function handleRelease(env, url) {
+  const manifest = await readManifest(env, { fresh: url?.searchParams.get('fresh') === '1' });
   if (!manifest) {
     return fail(503, 'release_unavailable', '安装包还没上传，稍后再来');
   }
 
-  return json(200, { ok: true, data: publicManifest(manifest) }, {
-    'Cache-Control': 'public, max-age=60',
-  });
+  // 版本号是强一致信息：缓存 60 秒会让页面拿着旧 size 去切新文件。
+  return json(200, { ok: true, data: publicManifest(manifest) });
 }
 
 function parseRange(header, size) {
@@ -102,12 +106,35 @@ async function handleDownload(request, env) {
   const arch = url.searchParams.get('arch') ?? 'arm64';
   if (!ALLOWED_ARCH.has(arch)) return fail(400, 'bad_arch', '未知架构');
 
-  const manifest = await readManifest(env);
+  let manifest = await readManifest(env);
+
+  // 客户端带着版本号来下载时，必须和这一版的对象严格对应。否则会拿旧 size
+  // 去切新文件——拼出来的 dmg 少一截，用户只看到「文件已损坏」。
+  const wantedVersion = url.searchParams.get('v');
+  if (wantedVersion && manifest?.version !== wantedVersion) {
+    manifest = await readManifest(env, { fresh: true });
+    if (manifest?.version !== wantedVersion) {
+      return fail(
+        409,
+        'conflict',
+        `安装包已更新到 ${manifest?.version ?? '新版本'}，请刷新页面后重新下载`,
+      );
+    }
+  }
+
   const file = manifest?.files?.[arch];
   if (!file?.key) return fail(404, 'not_found', '这个架构的安装包还没上传');
 
   const size = file.size ?? 0;
-  const range = size ? parseRange(request.headers.get('range'), size) : null;
+  let range = size ? parseRange(request.headers.get('range'), size) : null;
+
+  // If-Range：浏览器续传时会带上它。对象已经换成新版本时必须回整包，让客户端
+  // 从头下，而不是把新版本的尾巴接到旧版本的前半截上。
+  const ifRange = request.headers.get('if-range');
+  if (range && ifRange) {
+    const head = await env.R2_RELEASES.head(file.key);
+    if (!head?.httpEtag || ifRange.trim() !== head.httpEtag) range = null;
+  }
 
   const object = await env.R2_RELEASES.get(file.key, range ? { range } : undefined);
   if (!object) return fail(404, 'not_found', '安装包丢失了');
@@ -115,13 +142,9 @@ async function handleDownload(request, env) {
   const headers = new Headers();
   headers.set('content-type', 'application/octet-stream');
   headers.set('accept-ranges', 'bytes');
-  // Only whole-file responses are worth caching. A ranged response belongs to one
-  // chunked download: keeping it would leave partial installers in the browser
-  // cache even after the user cancels.
-  headers.set(
-    'cache-control',
-    range ? 'no-store' : 'public, max-age=31536000, immutable',
-  );
+  // 安装包一律不进任何中间缓存。整包响应曾经被标成 `immutable` 一年，而下载 URL
+  // 又不带版本号 —— 发版后同一个 URL 会继续返回旧包，等于让老用户永远下到旧版。
+  headers.set('cache-control', 'no-store');
 
   if (range) {
     headers.set('content-range', `bytes ${range.start}-${range.end}/${size}`);
@@ -231,7 +254,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    if (url.pathname === '/api/release') return handleRelease(env);
+    if (url.pathname === '/api/release') return handleRelease(env, url);
     if (url.pathname === '/api/download') return handleDownload(request, env);
     if (url.pathname === '/api/ping') return handlePing(request, env);
     if (url.pathname === '/api/stats') return handleStats(env);

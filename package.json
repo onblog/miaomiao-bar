@@ -15,7 +15,7 @@
     "dev": "node tools/write-site-origin.cjs && concurrently -k -n VITE,ELECTRON -c cyan,magenta \"vite\" \"wait-on tcp:5199 && VITE_DEV_SERVER_URL=http://localhost:5199 electron .\"",
     "build": "vite build",
     "start": "npm run build && electron .",
-    "test": "node --test tests/*.test.cjs",
+    "test": "node --test tests/*.test.cjs site/test/*.test.mjs",
     "dist": "node tools/write-site-origin.cjs && npm run dist:arm64 && npm run dist:x64 && npm run clean",
     "dist:arm64": "electron-builder --mac --arm64",
     "dist:x64": "electron-builder --mac --x64",

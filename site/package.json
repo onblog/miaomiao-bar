@@ -6,9 +6,12 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "release": "node scripts/publish-release.mjs"
+    "release": "node scripts/publish-release.mjs",
+    "check": "node --check src/index.js && node --check public/app.js",
+    "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.151.3"
-  }
+  },
+  "type": "module"
 }

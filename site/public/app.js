@@ -263,21 +263,31 @@ function detectArch() {
   return 'x64';
 }
 
+async function fetchRelease({ fresh = false } = {}) {
+  const url = fresh ? `/api/release?fresh=1&ts=${Date.now()}` : '/api/release';
+  const response = await fetch(url, {
+    // 清单不进 HTTP 缓存：缓存里的旧 size 会让人按旧尺寸去切新文件。
+    cache: 'no-store',
+  });
+  const payload = await response.json();
+  if (!payload.ok || !payload.data) return null;
+  return payload.data;
+}
+
 async function loadRelease() {
   const downloads = document.getElementById('downloads');
   const versionNode = document.getElementById('version');
 
   try {
-    const response = await fetch('/api/release');
-    const payload = await response.json();
+    const data = await fetchRelease();
 
-    if (!payload.ok) {
+    if (!data) {
       downloads.dataset.unavailable = 'true';
       versionNode.textContent = t('download.unavailable');
       return;
     }
 
-    state.release = payload.data;
+    state.release = data;
     const preferred = detectArch();
 
     // Re-render the static copy first: it would otherwise overwrite the size
@@ -286,7 +296,7 @@ async function loadRelease() {
 
     for (const link of downloads.querySelectorAll('a[data-arch]')) {
       const arch = link.dataset.arch;
-      const file = payload.data.files[arch];
+      const file = data.files[arch];
 
       // The href is already a working download URL; the manifest only adds the
       // size suffix and marks missing builds.
@@ -308,8 +318,8 @@ async function loadRelease() {
       link.classList.toggle('btn--ghost', !recommended);
     }
 
-    versionNode.textContent = payload.data.version
-      ? `v${payload.data.version} · ${payload.data.released_at ?? ''}`
+    versionNode.textContent = data.version
+      ? `v${data.version} · ${data.released_at ?? ''}`
       : '';
   } catch (error) {
     console.error('release manifest failed', error);
@@ -495,7 +505,15 @@ async function fetchRange(url, start, end, onBytes, onReset, signal) {
         signal: linkedSignal(signal, 45000),
       });
       if (response.status !== 206) throw new Error(`unexpected status ${response.status}`);
-      return await readBlob(response, onBytes, signal);
+
+      const blob = await readBlob(response, onBytes, signal);
+      // 连接被中途掐断时 reader 只会读到 EOF，不会抛错。不比对长度，缺一截的
+      // 碎片就会被拼进最终文件，用户双击 dmg 才看到「已损坏」。
+      const expected = end - start + 1;
+      if (blob.size !== expected) {
+        throw new Error(`short range ${start}-${end}: ${blob.size}/${expected}`);
+      }
+      return blob;
     } catch (error) {
       lastError = error;
       // 用户点了取消就不再重试，否则等于“取消失败”。
@@ -519,7 +537,7 @@ async function downloadFile(url, size, onProgress, signal) {
     const response = await fetch(url, { signal });
     if (!response.ok) throw new Error(`status ${response.status}`);
     let received = 0;
-    return readBlob(
+    const blob = await readBlob(
       response,
       (bytes) => {
         received += bytes;
@@ -527,6 +545,11 @@ async function downloadFile(url, size, onProgress, signal) {
       },
       signal,
     );
+    // 整包下载同样可能被截断，长度对不上就是坏包。
+    if (total && blob.size !== total) {
+      throw new Error(`short download: ${blob.size}/${total}`);
+    }
+    return blob;
   }
 
   const chunkSize = Math.ceil(total / CHUNK_COUNT);
@@ -571,7 +594,20 @@ async function downloadFile(url, size, onProgress, signal) {
     }),
   );
 
-  return new Blob(parts);
+  const blob = new Blob(parts);
+  // 每段都对过了，这里再对一次总量：任何一段被误判都会在这一步现形。
+  if (total && blob.size !== total) {
+    throw new Error(`short download: ${blob.size}/${total}`);
+  }
+  return blob;
+}
+
+/** 清单里给了 sha256 就拿它做终校验：长度对、内容错（错位拼接）也能挡住。 */
+async function sha256Hex(blob) {
+  const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 function showToast(message, durationMs = 3000) {
@@ -618,6 +654,15 @@ async function startDownload(arch) {
     return;
   }
 
+  // 点之前再核对一次清单：页面可能还停在上一版，拿旧 size 切新文件会拼出坏包。
+  // 刷新失败就退回页面上的数据，由长度与哈希校验兜底。
+  try {
+    const fresh = await fetchRelease({ fresh: true });
+    if (fresh) state.release = fresh;
+  } catch {
+    /* 网络抖动：继续用页面上的清单 */
+  }
+
   const file = state.release.files?.[arch];
   if (!file) return;
 
@@ -646,6 +691,14 @@ async function startDownload(arch) {
       createProgressReporter(file.size),
       controller.signal,
     );
+    const expectedSha = String(file.sha256 ?? '').toLowerCase();
+    if (expectedSha) {
+      const actual = await sha256Hex(blob);
+      if (actual !== expectedSha) {
+        throw new Error(`checksum mismatch: ${actual}`);
+      }
+    }
+
     saveBlob(blob, file.name);
     hideProgress();
     setDownloadsBusy(false);
