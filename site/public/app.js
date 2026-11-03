@@ -7,10 +7,6 @@
 const dict = {
   zh: {
     brand: '喵喵剪贴板',
-    'nav.actions': '动作',
-    'nav.details': '细节',
-    'nav.bucket': '图床',
-    'nav.faq': '常见问题',
     'nav.stats': '统计',
     'nav.sibling': '喵喵笔记',
     'hero.title': '喵喵剪贴板',
@@ -110,10 +106,6 @@ const dict = {
   },
   en: {
     brand: 'Miaomiao Bar',
-    'nav.actions': 'Actions',
-    'nav.details': 'Details',
-    'nav.bucket': 'Image host',
-    'nav.faq': 'FAQ',
     'nav.stats': 'Stats',
     'nav.sibling': 'Miaomiao Notes',
     'hero.title': 'Miaomiao Bar',
