@@ -7,6 +7,7 @@ const messages = {
   zh: {
     brand: '喵喵剪贴板',
     'nav.home': '首页',
+    'nav.sibling': '喵喵笔记',
     'stats.title': '使用数据',
     'stats.sub': '只统计匿名启动信号，不收集个人信息，不含 IP 与设备指纹。',
     'stats.total': '总用户量',
@@ -32,6 +33,7 @@ const messages = {
   en: {
     brand: 'Miaomiao Notes',
     'nav.home': 'Home',
+    'nav.sibling': 'Miaomiao Notes',
     'stats.title': 'Usage',
     'stats.sub': 'Anonymous launch signals only. No personal data, no IP, no device fingerprint.',
     'stats.total': 'Total users',
